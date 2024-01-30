@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="6b081e0f-71c4-4889-b3b7-4744f106e0ce" name="Changes" comment="lifing files">
-      <change afterPath="$PROJECT_DIR$/helper_functions.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+    <list default="true" id="6b081e0f-71c4-4889-b3b7-4744f106e0ce" name="Changes" comment="refractoring">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/404_link_scanner.py" beforeDir="false" afterPath="$PROJECT_DIR$/404_link_scanner.py" afterDir="false" />
     </list>
@@ -99,12 +97,20 @@
       <option name="presentableId" value="LOCAL−00001" />
       <updated>1706535158439</updated>
     </task>
-    <option name="localTasksCounter" value="2" />
+    <task id="LOCAL−00002" summary="refractoring">
+      <option name="closed" value="true" />
+      <created>1706627023972</created>
+      <option name="number" value="LOCAL−00002" />
+      <option name="presentableId" value="LOCAL−00002" />
+      <updated>1706627023972</updated>
+    </task>
+    <option name="localTasksCounter" value="3" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="lifing files" />
-    <option name="LAST_COMMIT_MESSAGE" value="lifing files" />
+    <MESSAGE value="refractoring" />
+    <option name="LAST_COMMIT_MESSAGE" value="refractoring" />
   </component>
   <component name="XDebuggerManager">
     <breakpoint-manager>

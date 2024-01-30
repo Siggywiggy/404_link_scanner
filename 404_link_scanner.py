@@ -46,6 +46,8 @@ def link_crawler(url):
         for link in links_list:
             # tuple unpack working link and its parent link from tuple
             parent_link, working_link = link
+            # remove the current link from the list of links
+            links_list = [value for value in links_list if value[1] != link[1]]
             # keeping track of visited links
             visited_links.append(working_link)
             # logging.debug(f"visited links are {visited_links}")
