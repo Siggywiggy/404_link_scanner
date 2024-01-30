@@ -162,6 +162,8 @@ def link_crawler(url):
         except requests.exceptions.ConnectionError as urlerr:
             print(f"something went wrong with downloading: {urlerr}")
             visited_links.append(external_link)
+            broken_links.append(external_link)
+
 
     return broken_links
 
