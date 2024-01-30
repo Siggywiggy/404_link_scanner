@@ -60,7 +60,7 @@ def link_crawler(url):
                 requests.exceptions.InvalidSchema,
             ) as schemaerr:
                 print(f"Something went wrong with the url schema: {schemaerr}")
-                broken_links.append((parent_link, working_link))
+                #broken_links.append((parent_link, working_link))
                 print(parent_link, working_link)
             except requests.exceptions.HTTPError as err:
                 print(f"Something went wrong with downloading a page: {err}")
@@ -143,6 +143,9 @@ def link_crawler(url):
         # check if the link has already been listed in broken links or visited links:
         logging.debug(f"external link is {str(list(external_link))}")
 
+        if external_link[1] in visited_links:
+            continue
+
         try:
             request_object = requests.get(external_link[1], headers)
             request_object.raise_for_status()
@@ -152,14 +155,14 @@ def link_crawler(url):
         ) as schemaerr:
             print(f"Something went wrong with downloading: {schemaerr}")
             visited_links.append(external_link)
-            broken_links.append(external_link)
+
         except requests.exceptions.HTTPError as err:
             print(f"Something went wrong with downloading: {err}")
             broken_links.append(external_link)
         except requests.exceptions.ConnectionError as urlerr:
             print(f"something went wrong with downloading: {urlerr}")
             visited_links.append(external_link)
-            broken_links.append(external_link)
+
     return broken_links
 
 

@@ -1,0 +1,472 @@
+Index: 404_link_scanner.py
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>#! python3\n# a program to check if all the links on a website are functional\n# checking all the links on the same website regardless of depth\n# external links are checked by depth of 1\n\nimport re\nimport bs4\nimport requests\nimport logging\nimport pprint\nfrom helper_functions import tuple_checker as t_check\nimport time\n\nlogging.basicConfig(\n    level=logging.DEBUG, format=\" %(asctime)s -  %(levelname) s -  %(message)s\"\n)\n\n# comment out next line to enable logging\n\nlogging.disable(logging.CRITICAL)\n\nlogging.debug(\"Start of program...\")\n\nheaders = {\n    \"User-Agent\": \"Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0\"\n}\n\nstarting_url = \"https://www.kliimaseade.ee\"\n\n# regex to capture all wbsite urls not preceded by \"@\"\nurl_regex = re.compile(r\"(?<![@])(.*kliimaseade.ee).*\")\n# regex to capture all shortened links that dont match first group but match second group\nurl_regex_shortened = re.compile(f\"^(?!.*\\\\b(?:.com|.ee|.eu|.org|mailto)\\\\b)(.*/.*/.*)\")\n\n\ndef link_crawler(url):\n    links_list = list()\n    # tuples of parent/child url links to keep track of also parent link\n    links_list.append((url, url))\n    external_links = list()\n    visited_links = list()\n    broken_links = list()\n\n    while links_list:\n        logging.debug(f\"lenght of list is {len(links_list)}\")\n        for link in links_list:\n            # tuple unpack working link and its parent link from tuple\n            parent_link, working_link = link\n            # remove the current link from the list of links\n            links_list = [value for value in links_list if value[1] != link[1]]\n            # keeping track of visited links\n            visited_links.append(working_link)\n            # logging.debug(f\"visited links are {visited_links}\")\n            # check if the download went OK\n            try:\n                request_object = requests.get(working_link, headers)\n                request_object.raise_for_status()\n            except (\n                requests.exceptions.MissingSchema,\n                requests.exceptions.InvalidSchema,\n            ) as schemaerr:\n                print(f\"Something went wrong with the url schema: {schemaerr}\")\n                broken_links.append((parent_link, working_link))\n                print(parent_link, working_link)\n            except requests.exceptions.HTTPError as err:\n                print(f\"Something went wrong with downloading a page: {err}\")\n                print(err.response.status_code)\n                print(parent_link, working_link)\n                broken_links.append((parent_link, working_link))\n                continue\n            except requests.exceptions.ConnectionError as conn_err:\n                print(f\"something went wrong with connecting: {conn_err}\")\n                print(parent_link, working_link)\n                broken_links.append((parent_link, working_link))\n                continue\n\n            # create soup object and parse it with 'lxml'\n            soup_object = bs4.BeautifulSoup(request_object.content, \"lxml\")\n            # getting all \"a href\" links\n            all_href_links = soup_object.find_all(\"a\", href=True)\n\n            for i in all_href_links:  # loop over all freshly found links\n                new_link = i[\"href\"]\n                if new_link in visited_links:  # if already visited, continue loop\n                    logging.debug(f\"{new_link} already visited, skipping\")\n                    continue\n\n                match_object_long = url_regex.search(\n                    new_link\n                )  # search for full link regex match\n                match_object_shortened = url_regex_shortened.search(\n                    new_link\n                )  # match partial link regex match\n\n                if match_object_long:\n                    # if long link regex results in match object\n                    logging.debug(\n                        f\"regex match found! {match_object_long.group(1)} {new_link}\"\n                    )\n                    # check if link is in either visited_links or links list\n                    if new_link in visited_links:\n                        continue\n                    elif t_check(links_list, new_link):\n                        logging.debug(f\"{new_link} is in links_list, skipping\")\n                        continue\n                    else:\n                        links_list.append((working_link, new_link))\n\n                # check if the link matches short link regex\n                elif match_object_shortened:\n                    logging.debug(\n                        f\"shortened url regex match found! {match_object_shortened.group()}\"\n                    )\n\n                    # turn in to functional url\n                    elongated_url = url + str(match_object_shortened.group())\n                    # check if link is in either visited_links or links_list\n                    logging.debug(f\"elongated url is {elongated_url}\")\n                    # print(elongated_url)\n                    # time.sleep(5)\n                    if elongated_url in visited_links:\n                        continue\n                    elif t_check(links_list, new_link):\n                        logging.debug(f\"{elongated_url} is in links_list, skipping\")\n                        continue\n                    else:\n                        links_list.append((working_link, elongated_url))\n                # if no regex match found\n                elif (match_object_long is None) and (match_object_shortened is None):\n                    logging.debug(f\"external link found! {new_link}\")\n                    logging.debug(f\"checking if {new_link} in visited_links:\")\n                    logging.debug(f\"visited links are {visited_links}\")\n                    if new_link in visited_links:\n                        continue\n                    elif t_check(links_list, new_link):\n                        logging.debug(f\"{new_link} is in visited_links or links_list\")\n                        continue\n                    else:\n                        logging.debug(f\"adding {new_link} to {external_links}\")\n                        external_links.append((working_link, new_link))\n\n    for external_link in external_links:\n        # check if the link has already been listed in broken links or visited links:\n        logging.debug(f\"external link is {str(list(external_link))}\")\n\n        try:\n            request_object = requests.get(external_link[1], headers)\n            request_object.raise_for_status()\n        except (\n            requests.exceptions.MissingSchema,\n            requests.exceptions.InvalidSchema,\n        ) as schemaerr:\n            print(f\"Something went wrong with downloading: {schemaerr}\")\n            visited_links.append(external_link)\n            broken_links.append(external_link)\n        except requests.exceptions.HTTPError as err:\n            print(f\"Something went wrong with downloading: {err}\")\n            broken_links.append(external_link)\n        except requests.exceptions.ConnectionError as urlerr:\n            print(f\"something went wrong with downloading: {urlerr}\")\n            visited_links.append(external_link)\n            broken_links.append(external_link)\n    return broken_links\n\n\nwebsite_broken_links = link_crawler(starting_url)\npprint.pprint(website_broken_links)\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/404_link_scanner.py b/404_link_scanner.py
+--- a/404_link_scanner.py	(revision 5948926d766c192092004ed0550d29100baca79a)
++++ b/404_link_scanner.py	(date 1706648216615)
+@@ -1,167 +1,198 @@
+ #! python3
+ # a program to check if all the links on a website are functional
+-# checking all the links on the same website regardless of depth
+-# external links are checked by depth of 1
+ 
+ import re
+ import bs4
+ import requests
+ import logging
+ import pprint
+-from helper_functions import tuple_checker as t_check
+-import time
+ 
+ logging.basicConfig(
+     level=logging.DEBUG, format=" %(asctime)s -  %(levelname) s -  %(message)s"
+ )
+ 
+-# comment out next line to enable logging
+-
+ logging.disable(logging.CRITICAL)
+ 
+ logging.debug("Start of program...")
+ 
+-headers = {
++headers = headers = {
+     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"
+ }
+ 
+-starting_url = "https://www.kliimaseade.ee"
++starting_url = 'https://www.kliimaseade.ee'
+ 
+-# regex to capture all wbsite urls not preceded by "@"
+-url_regex = re.compile(r"(?<![@])(.*kliimaseade.ee).*")
+-# regex to capture all shortened links that dont match first group but match second group
+-url_regex_shortened = re.compile(f"^(?!.*\\b(?:.com|.ee|.eu|.org|mailto)\\b)(.*/.*/.*)")
++url_regex = re.compile(r'(?<![@])(kliimaseade.ee).*')
++#url_regex_shortened = re.compile(f'^(?!.*\\b(?:.com|.ee|.eu|.org|mailto)\\b).*(?:(/.*/))')
++url_regex_shortened = re.compile(f'^(?!.*\\b(?:.com|.ee|.eu|.org|mailto)\\b)(/.*/.*)')
++#url_regex_shortened = re.compile(f'^(?!.*\\b(?:.com|.ee|.eu|.org|mailto)\\b)(/.*/.*)')
+ 
+ 
+ def link_crawler(url):
+     links_list = list()
+-    # tuples of parent/child url links to keep track of also parent link
++    # tuples of parent/child url links
+     links_list.append((url, url))
+     external_links = list()
+     visited_links = list()
+     broken_links = list()
+ 
+     while links_list:
+-        logging.debug(f"lenght of list is {len(links_list)}")
++        #logging.DEBUG(f'lenght of list is {len(links_list)}')
+         for link in links_list:
+-            # tuple unpack working link and its parent link from tuple
+-            parent_link, working_link = link
+-            # remove the current link from the list of links
+-            links_list = [value for value in links_list if value[1] != link[1]]
+-            # keeping track of visited links
++            if link[1] in visited_links:
++                #removing all references to already visited links in the main collection of links
++                links_list = [value for value in links_list if value[1] != link[1]]
++                logging.debug(f'already visited the link {link}, removing {link}')
++                continue
++
++            working_link = link[1]
++            parent_link = link[0]
++            links_list = [value for value in links_list if value[1] != link]
+             visited_links.append(working_link)
+-            # logging.debug(f"visited links are {visited_links}")
++            logging.debug(f'visited links are {visited_links}')
++            #request_object = requests.get(working_link, headers)
+             # check if the download went OK
+             try:
+                 request_object = requests.get(working_link, headers)
+                 request_object.raise_for_status()
+-            except (
+-                requests.exceptions.MissingSchema,
+-                requests.exceptions.InvalidSchema,
+-            ) as schemaerr:
+-                print(f"Something went wrong with the url schema: {schemaerr}")
+-                broken_links.append((parent_link, working_link))
+-                print(parent_link, working_link)
++            except (requests.exceptions.MissingSchema, requests.exceptions.InvalidSchema) as schemaerr:
++                print(f'Something went wrong with downloading: {schemaerr}')
++                continue
+             except requests.exceptions.HTTPError as err:
+-                print(f"Something went wrong with downloading a page: {err}")
++                print(f'Something went wrong with downloading: {err}')
+                 print(err.response.status_code)
+-                print(parent_link, working_link)
+-                broken_links.append((parent_link, working_link))
+-                continue
+-            except requests.exceptions.ConnectionError as conn_err:
+-                print(f"something went wrong with connecting: {conn_err}")
++                #print(err.response.text)
+                 print(parent_link, working_link)
+-                broken_links.append((parent_link, working_link))
+-                continue
++
++                for i, x in enumerate(broken_links):
++                    if working_link == x:
++                        break
++                else:
++                    broken_links.append((parent_link, working_link))
++
++            except (requests.exceptions.ConnectionError) as urlerr:
++                print(f'something went wrong with downloading: {urlerr}')
++
++
+ 
+-            # create soup object and parse it with 'lxml'
+-            soup_object = bs4.BeautifulSoup(request_object.content, "lxml")
+-            # getting all "a href" links
++            #create soup object and parse it with 'lxml'
++            #request_object.encoding = request_object.apparent_encoding
++            soup_object = bs4.BeautifulSoup(request_object.content, 'lxml')
++
+             all_href_links = soup_object.find_all("a", href=True)
+ 
+-            for i in all_href_links:  # loop over all freshly found links
+-                new_link = i["href"]
+-                if new_link in visited_links:  # if already visited, continue loop
+-                    logging.debug(f"{new_link} already visited, skipping")
+-                    continue
+ 
+-                match_object_long = url_regex.search(
+-                    new_link
+-                )  # search for full link regex match
+-                match_object_shortened = url_regex_shortened.search(
+-                    new_link
+-                )  # match partial link regex match
+ 
+-                if match_object_long:
+-                    # if long link regex results in match object
+-                    logging.debug(
+-                        f"regex match found! {match_object_long.group(1)} {new_link}"
+-                    )
+-                    # check if link is in either visited_links or links list
+-                    if new_link in visited_links:
+-                        continue
+-                    elif t_check(links_list, new_link):
+-                        logging.debug(f"{new_link} is in links_list, skipping")
+-                        continue
++            for i in all_href_links:
++                new_link = i['href']
++
++                if new_link in visited_links:
++                    continue
++
++                match_object = url_regex.search(new_link)
++                match_object_shortened = url_regex_shortened.search(new_link)
++
++                if match_object:
++                    #logging.debug(f'regex match found! {match_object.group(1)} {new_link}')
++                    for i, x in enumerate(visited_links):
++                        if new_link in x:
++                            logging.debug(f'already have the link in visited_links {new_link}')
++                            break
++                    else:
++                        logging.debug(f'found new link : {new_link}')
++                        links_list.append((working_link, new_link))
++
++                    for i, x in enumerate(links_list):
++                        if new_link in x:
++                            logging.debug(f'already have the link on links_list {new_link}')
++                            break
+                     else:
+                         links_list.append((working_link, new_link))
+ 
+-                # check if the link matches short link regex
+                 elif match_object_shortened:
+-                    logging.debug(
+-                        f"shortened url regex match found! {match_object_shortened.group()}"
+-                    )
+-
+-                    # turn in to functional url
++                    #print(match_object_shortened.group())
++                    #time.sleep(10)
+                     elongated_url = url + str(match_object_shortened.group())
+-                    # check if link is in either visited_links or links_list
+-                    logging.debug(f"elongated url is {elongated_url}")
+-                    # print(elongated_url)
+-                    # time.sleep(5)
+-                    if elongated_url in visited_links:
+-                        continue
+-                    elif t_check(links_list, new_link):
+-                        logging.debug(f"{elongated_url} is in links_list, skipping")
+-                        continue
++                    #print(elongated_url)
++                    #logging.DEBUG(time.sleep(1))
++                    for i, x in enumerate(visited_links):
++                        if elongated_url in x:
++                            logging.debug(f'already have the link in visited_links {new_link}')
++                            break
++                    else:
++                        logging.debug(f'found new link : {new_link}')
++                        links_list.append((working_link, elongated_url))
++
++                    for i, x in enumerate(links_list):
++                        if elongated_url in x:
++                            logging.debug(f'already have the link on links_list {new_link}')
++                            break
+                     else:
+                         links_list.append((working_link, elongated_url))
+-                # if no regex match found
+-                elif (match_object_long is None) and (match_object_shortened is None):
+-                    logging.debug(f"external link found! {new_link}")
+-                    logging.debug(f"checking if {new_link} in visited_links:")
+-                    logging.debug(f"visited links are {visited_links}")
+-                    if new_link in visited_links:
+-                        continue
+-                    elif t_check(links_list, new_link):
+-                        logging.debug(f"{new_link} is in visited_links or links_list")
+-                        continue
++                        #logging.DEBUG(f'new link is {new_link}')
++                        #logging.DEBUG(f'adding {new_link} to links_list')
++                        #time.sleep(5)
++
++                elif match_object == None:
++                    #logging.debug(f'found external link {new_link}')
++                    for i, x in enumerate(external_links):
++                        if new_link in x:
++                            logging.debug(f'already seen this external link {new_link}')
++                            break
+                     else:
+-                        logging.debug(f"adding {new_link} to {external_links}")
+                         external_links.append((working_link, new_link))
++                        #time.sleep(5)
++                        logging.debug(f'new link is {new_link}')
++                        logging.debug(f'adding {new_link} to external_links')
++
++
+ 
+     for external_link in external_links:
+-        # check if the link has already been listed in broken links or visited links:
+-        logging.debug(f"external link is {str(list(external_link))}")
++        # check if the link has already been listed in broken links:
++        #logging.DEBUG(f'external link is {str(list(external_link))}')
++        #print(external_links)
++        #time.sleep(10)
++        exists = False
++
++        for i, x in enumerate(broken_links):
++            #logging.DEBUG(f'x is {x}')
++            if external_link[1] in x:
++                logging.debug(f'{external_link[1]} already in broken_links!')
++                exists = True
++                break
+ 
+-        try:
+-            request_object = requests.get(external_link[1], headers)
+-            request_object.raise_for_status()
+-        except (
+-            requests.exceptions.MissingSchema,
+-            requests.exceptions.InvalidSchema,
+-        ) as schemaerr:
+-            print(f"Something went wrong with downloading: {schemaerr}")
+-            visited_links.append(external_link)
+-            broken_links.append(external_link)
+-        except requests.exceptions.HTTPError as err:
+-            print(f"Something went wrong with downloading: {err}")
+-            broken_links.append(external_link)
+-        except requests.exceptions.ConnectionError as urlerr:
+-            print(f"something went wrong with downloading: {urlerr}")
+-            visited_links.append(external_link)
+-            broken_links.append(external_link)
++         # check if the link has already been visited:
++        for i, x in enumerate(visited_links):
++            if external_link[1] in x:
++                logging.debug(f'{external_link[1]} already in visited_links!')
++                exists = True
++                break
++
++        if not exists:
++            try:
++                request_object = requests.get(external_link[1], headers)
++                request_object.raise_for_status()
++            except (requests.exceptions.MissingSchema, requests.exceptions.InvalidSchema) as schemaerr:
++                print(f'Something went wrong with downloading: {schemaerr}')
++                visited_links.append(external_link)
++
++            except requests.exceptions.HTTPError as err:
++                print(f'Something went wrong with downloading: {err}')
++
++                broken_links.append(external_link)
++            except requests.exceptions.ConnectionError as urlerr:
++                print(f'something went wrong with downloading: {urlerr}')
++                visited_links.append(external_link)
++        else:
++            continue
++    #logging.debug('external links are:')
++    #logging.debug(pprint.pprint(external_links))
++
+     return broken_links
+ 
+ 
++
++
++
++
+ website_broken_links = link_crawler(starting_url)
+ pprint.pprint(website_broken_links)
+Index: .idea/misc.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project version=\"4\">\n  <component name=\"Black\">\n    <option name=\"enabledOnReformat\" value=\"true\" />\n    <option name=\"enabledOnSave\" value=\"true\" />\n    <option name=\"sdkName\" value=\"Python 3.12 (404_link_scanner)\" />\n  </component>\n  <component name=\"ProjectRootManager\" version=\"2\" project-jdk-name=\"Python 3.12 (404_link_scanner)\" project-jdk-type=\"Python SDK\" />\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/misc.xml b/.idea/misc.xml
+--- a/.idea/misc.xml	(revision 5948926d766c192092004ed0550d29100baca79a)
++++ b/.idea/misc.xml	(date 1706648216631)
+@@ -5,5 +5,5 @@
+     <option name="enabledOnSave" value="true" />
+     <option name="sdkName" value="Python 3.12 (404_link_scanner)" />
+   </component>
+-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (404_link_scanner)" project-jdk-type="Python SDK" />
++  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.10 (404_link_checker)" project-jdk-type="Python SDK" />
+ </project>
+\ No newline at end of file
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<project version=\"4\">\n  <component name=\"AutoImportSettings\">\n    <option name=\"autoReloadType\" value=\"SELECTIVE\" />\n  </component>\n  <component name=\"ChangeListManager\">\n    <list default=\"true\" id=\"6b081e0f-71c4-4889-b3b7-4744f106e0ce\" name=\"Changes\" comment=\"refractoring\">\n      <change beforePath=\"$PROJECT_DIR$/.idea/workspace.xml\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/.idea/workspace.xml\" afterDir=\"false\" />\n      <change beforePath=\"$PROJECT_DIR$/404_link_scanner.py\" beforeDir=\"false\" afterPath=\"$PROJECT_DIR$/404_link_scanner.py\" afterDir=\"false\" />\n    </list>\n    <option name=\"SHOW_DIALOG\" value=\"false\" />\n    <option name=\"HIGHLIGHT_CONFLICTS\" value=\"true\" />\n    <option name=\"HIGHLIGHT_NON_ACTIVE_CHANGELIST\" value=\"false\" />\n    <option name=\"LAST_RESOLUTION\" value=\"IGNORE\" />\n  </component>\n  <component name=\"FileTemplateManagerImpl\">\n    <option name=\"RECENT_TEMPLATES\">\n      <list>\n        <option value=\"Python Script\" />\n      </list>\n    </option>\n  </component>\n  <component name=\"Git.Settings\">\n    <option name=\"RECENT_GIT_ROOT_PATH\" value=\"$PROJECT_DIR$\" />\n  </component>\n  <component name=\"ProjectColorInfo\">{\n  &quot;associatedIndex&quot;: 5\n}</component>\n  <component name=\"ProjectId\" id=\"2bdBDPIkik1Uy8ObMbEd9D1lXfA\" />\n  <component name=\"ProjectLevelVcsManager\" settingsEditedManually=\"true\" />\n  <component name=\"ProjectViewState\">\n    <option name=\"hideEmptyMiddlePackages\" value=\"true\" />\n    <option name=\"showLibraryContents\" value=\"true\" />\n  </component>\n  <component name=\"PropertiesComponent\"><![CDATA[{\n  \"keyToString\": {\n    \"Python.404_link_scanner.executor\": \"Run\",\n    \"Python.backup_file.executor\": \"Run\",\n    \"Python.tuple_cheker.executor\": \"Run\",\n    \"RunOnceActivity.OpenProjectViewOnStart\": \"true\",\n    \"RunOnceActivity.ShowReadmeOnStart\": \"true\",\n    \"git-widget-placeholder\": \"master\",\n    \"ignore.virus.scanning.warn.message\": \"true\",\n    \"last_opened_file_path\": \"C:/Users/Aadam/Desktop/Programmeerimine/Broken_link_scanner\",\n    \"settings.editor.selected.configurable\": \"com.jetbrains.python.black.configuration.BlackFormatterConfigurable\"\n  }\n}]]></component>\n  <component name=\"RunManager\">\n    <configuration name=\"helper_functions\" type=\"PythonConfigurationType\" factoryName=\"Python\" temporary=\"true\" nameIsGenerated=\"true\">\n      <module name=\"404_link_scanner\" />\n      <option name=\"ENV_FILES\" value=\"\" />\n      <option name=\"INTERPRETER_OPTIONS\" value=\"\" />\n      <option name=\"PARENT_ENVS\" value=\"true\" />\n      <envs>\n        <env name=\"PYTHONUNBUFFERED\" value=\"1\" />\n      </envs>\n      <option name=\"SDK_HOME\" value=\"\" />\n      <option name=\"WORKING_DIRECTORY\" value=\"$PROJECT_DIR$\" />\n      <option name=\"IS_MODULE_SDK\" value=\"true\" />\n      <option name=\"ADD_CONTENT_ROOTS\" value=\"true\" />\n      <option name=\"ADD_SOURCE_ROOTS\" value=\"true\" />\n      <option name=\"SCRIPT_NAME\" value=\"C:\\Users\\Aadam\\404_link_scanner\\helper_functions.py\" />\n      <option name=\"PARAMETERS\" value=\"\" />\n      <option name=\"SHOW_COMMAND_LINE\" value=\"false\" />\n      <option name=\"EMULATE_TERMINAL\" value=\"false\" />\n      <option name=\"MODULE_MODE\" value=\"false\" />\n      <option name=\"REDIRECT_INPUT\" value=\"false\" />\n      <option name=\"INPUT_FILE\" value=\"\" />\n      <method v=\"2\" />\n    </configuration>\n    <recent_temporary>\n      <list>\n        <item itemvalue=\"Python.helper_functions\" />\n      </list>\n    </recent_temporary>\n  </component>\n  <component name=\"SharedIndexes\">\n    <attachedChunks>\n      <set>\n        <option value=\"bundled-python-sdk-50da183f06c8-d3b881c8e49f-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-233.13135.95\" />\n      </set>\n    </attachedChunks>\n  </component>\n  <component name=\"SpellCheckerSettings\" RuntimeDictionaries=\"0\" Folders=\"0\" CustomDictionaries=\"0\" DefaultDictionary=\"application-level\" UseSingleDictionary=\"true\" transferred=\"true\" />\n  <component name=\"TaskManager\">\n    <task active=\"true\" id=\"Default\" summary=\"Default task\">\n      <changelist id=\"6b081e0f-71c4-4889-b3b7-4744f106e0ce\" name=\"Changes\" comment=\"\" />\n      <created>1706534954564</created>\n      <option name=\"number\" value=\"Default\" />\n      <option name=\"presentableId\" value=\"Default\" />\n      <updated>1706534954564</updated>\n    </task>\n    <task id=\"LOCAL−00001\" summary=\"lifing files\">\n      <option name=\"closed\" value=\"true\" />\n      <created>1706535158439</created>\n      <option name=\"number\" value=\"LOCAL−00001\" />\n      <option name=\"presentableId\" value=\"LOCAL−00001\" />\n      <updated>1706535158439</updated>\n    </task>\n    <task id=\"LOCAL−00002\" summary=\"refractoring\">\n      <option name=\"closed\" value=\"true\" />\n      <created>1706627023972</created>\n      <option name=\"number\" value=\"LOCAL−00002\" />\n      <option name=\"presentableId\" value=\"LOCAL−00002\" />\n      <updated>1706627023972</updated>\n    </task>\n    <option name=\"localTasksCounter\" value=\"3\" />\n    <servers />\n  </component>\n  <component name=\"VcsManagerConfiguration\">\n    <MESSAGE value=\"lifing files\" />\n    <MESSAGE value=\"refractoring\" />\n    <option name=\"LAST_COMMIT_MESSAGE\" value=\"refractoring\" />\n  </component>\n  <component name=\"XDebuggerManager\">\n    <breakpoint-manager>\n      <default-breakpoints>\n        <breakpoint type=\"python-exception\">\n          <properties notifyOnTerminate=\"true\" exception=\"BaseException\">\n            <option name=\"notifyOnTerminate\" value=\"true\" />\n          </properties>\n        </breakpoint>\n      </default-breakpoints>\n    </breakpoint-manager>\n  </component>\n</project>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+--- a/.idea/workspace.xml	(revision 5948926d766c192092004ed0550d29100baca79a)
++++ b/.idea/workspace.xml	(date 1706648283423)
+@@ -1,10 +1,9 @@
+ <?xml version="1.0" encoding="UTF-8"?>
+ <project version="4">
+-  <component name="AutoImportSettings">
+-    <option name="autoReloadType" value="SELECTIVE" />
+-  </component>
+   <component name="ChangeListManager">
+-    <list default="true" id="6b081e0f-71c4-4889-b3b7-4744f106e0ce" name="Changes" comment="refractoring">
++    <list default="true" id="6b081e0f-71c4-4889-b3b7-4744f106e0ce" name="Changes" comment="">
++      <change beforePath="$PROJECT_DIR$/.idea/404_link_scanner.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/404_link_scanner.iml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+       <change beforePath="$PROJECT_DIR$/404_link_scanner.py" beforeDir="false" afterPath="$PROJECT_DIR$/404_link_scanner.py" afterDir="false" />
+     </list>
+@@ -20,6 +19,9 @@
+       </list>
+     </option>
+   </component>
++  <component name="Git.Rebase.Settings">
++    <option name="NEW_BASE" value="origin/master" />
++  </component>
+   <component name="Git.Settings">
+     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+   </component>
+@@ -35,45 +37,11 @@
+   <component name="PropertiesComponent"><![CDATA[{
+   "keyToString": {
+     "Python.404_link_scanner.executor": "Run",
+-    "Python.backup_file.executor": "Run",
+-    "Python.tuple_cheker.executor": "Run",
+     "RunOnceActivity.OpenProjectViewOnStart": "true",
+     "RunOnceActivity.ShowReadmeOnStart": "true",
+-    "git-widget-placeholder": "master",
+-    "ignore.virus.scanning.warn.message": "true",
+-    "last_opened_file_path": "C:/Users/Aadam/Desktop/Programmeerimine/Broken_link_scanner",
+-    "settings.editor.selected.configurable": "com.jetbrains.python.black.configuration.BlackFormatterConfigurable"
++    "git-widget-placeholder": "master"
+   }
+ }]]></component>
+-  <component name="RunManager">
+-    <configuration name="helper_functions" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+-      <module name="404_link_scanner" />
+-      <option name="ENV_FILES" value="" />
+-      <option name="INTERPRETER_OPTIONS" value="" />
+-      <option name="PARENT_ENVS" value="true" />
+-      <envs>
+-        <env name="PYTHONUNBUFFERED" value="1" />
+-      </envs>
+-      <option name="SDK_HOME" value="" />
+-      <option name="WORKING_DIRECTORY" value="$PROJECT_DIR$" />
+-      <option name="IS_MODULE_SDK" value="true" />
+-      <option name="ADD_CONTENT_ROOTS" value="true" />
+-      <option name="ADD_SOURCE_ROOTS" value="true" />
+-      <option name="SCRIPT_NAME" value="C:\Users\Aadam\404_link_scanner\helper_functions.py" />
+-      <option name="PARAMETERS" value="" />
+-      <option name="SHOW_COMMAND_LINE" value="false" />
+-      <option name="EMULATE_TERMINAL" value="false" />
+-      <option name="MODULE_MODE" value="false" />
+-      <option name="REDIRECT_INPUT" value="false" />
+-      <option name="INPUT_FILE" value="" />
+-      <method v="2" />
+-    </configuration>
+-    <recent_temporary>
+-      <list>
+-        <item itemvalue="Python.helper_functions" />
+-      </list>
+-    </recent_temporary>
+-  </component>
+   <component name="SharedIndexes">
+     <attachedChunks>
+       <set>
+@@ -90,37 +58,6 @@
+       <option name="presentableId" value="Default" />
+       <updated>1706534954564</updated>
+     </task>
+-    <task id="LOCAL−00001" summary="lifing files">
+-      <option name="closed" value="true" />
+-      <created>1706535158439</created>
+-      <option name="number" value="LOCAL−00001" />
+-      <option name="presentableId" value="LOCAL−00001" />
+-      <updated>1706535158439</updated>
+-    </task>
+-    <task id="LOCAL−00002" summary="refractoring">
+-      <option name="closed" value="true" />
+-      <created>1706627023972</created>
+-      <option name="number" value="LOCAL−00002" />
+-      <option name="presentableId" value="LOCAL−00002" />
+-      <updated>1706627023972</updated>
+-    </task>
+-    <option name="localTasksCounter" value="3" />
+     <servers />
+   </component>
+-  <component name="VcsManagerConfiguration">
+-    <MESSAGE value="lifing files" />
+-    <MESSAGE value="refractoring" />
+-    <option name="LAST_COMMIT_MESSAGE" value="refractoring" />
+-  </component>
+-  <component name="XDebuggerManager">
+-    <breakpoint-manager>
+-      <default-breakpoints>
+-        <breakpoint type="python-exception">
+-          <properties notifyOnTerminate="true" exception="BaseException">
+-            <option name="notifyOnTerminate" value="true" />
+-          </properties>
+-        </breakpoint>
+-      </default-breakpoints>
+-    </breakpoint-manager>
+-  </component>
+ </project>
+\ No newline at end of file
+Index: .idea/404_link_scanner.iml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+><?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<module type=\"PYTHON_MODULE\" version=\"4\">\n  <component name=\"NewModuleRootManager\">\n    <content url=\"file://$MODULE_DIR$\">\n      <excludeFolder url=\"file://$MODULE_DIR$/.venv\" />\n    </content>\n    <orderEntry type=\"inheritedJdk\" />\n    <orderEntry type=\"sourceFolder\" forTests=\"false\" />\n  </component>\n</module>
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/404_link_scanner.iml b/.idea/404_link_scanner.iml
+--- a/.idea/404_link_scanner.iml	(revision 5948926d766c192092004ed0550d29100baca79a)
++++ b/.idea/404_link_scanner.iml	(date 1706648219558)
+@@ -4,7 +4,7 @@
+     <content url="file://$MODULE_DIR$">
+       <excludeFolder url="file://$MODULE_DIR$/.venv" />
+     </content>
+-    <orderEntry type="inheritedJdk" />
++    <orderEntry type="jdk" jdkName="Python 3.10 (404_link_checker)" jdkType="Python SDK" />
+     <orderEntry type="sourceFolder" forTests="false" />
+   </component>
+ </module>
+\ No newline at end of file
