@@ -9,7 +9,7 @@ import requests
 import logging
 import pprint
 from helper_functions import tuple_checker as t_check
-import time
+import csv
 
 logging.basicConfig(
     level=logging.DEBUG, format=" %(asctime)s -  %(levelname) s -  %(message)s"
@@ -71,7 +71,6 @@ def link_crawler(url):
             except requests.exceptions.ConnectionError as conn_err:
                 print(f"something went wrong with connecting: {conn_err}")
                 print(parent_link, working_link)
-                broken_links.append((parent_link, working_link))
                 continue
 
             # create soup object and parse it with 'lxml'
@@ -142,7 +141,7 @@ def link_crawler(url):
     for external_link in external_links:
         # check if the link has already been listed in broken links or visited links:
         logging.debug(f"external link is {str(list(external_link))}")
-
+        #skipping if link already visited
         if external_link[1] in visited_links:
             continue
 
@@ -162,7 +161,6 @@ def link_crawler(url):
         except requests.exceptions.ConnectionError as urlerr:
             print(f"something went wrong with downloading: {urlerr}")
             visited_links.append(external_link)
-            broken_links.append(external_link)
 
 
     return broken_links
@@ -170,3 +168,13 @@ def link_crawler(url):
 
 website_broken_links = link_crawler(starting_url)
 pprint.pprint(website_broken_links)
+
+# writing results to csv file
+
+output_file = open('output.csv', 'w', newline='')
+output_writer = csv.writer(output_file)
+
+for item in website_broken_links:
+    output_writer.writerow(item)
+
+output_file.close()
