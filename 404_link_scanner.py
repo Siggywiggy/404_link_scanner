@@ -25,7 +25,7 @@ headers = {
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:122.0) Gecko/20100101 Firefox/122.0"
 }
 
-starting_url = "https://www.kliimaseade.ee"
+starting_url = "https://www.mitsubishikodusoojus.ee"
 
 # regex to capture all wbsite urls not preceded by "@"
 url_regex = re.compile(r"(?<![@])(.*kliimaseade.ee).*")
@@ -56,11 +56,11 @@ def link_crawler(url):
                 request_object = requests.get(working_link, headers)
                 request_object.raise_for_status()
             except (
-                requests.exceptions.MissingSchema,
-                requests.exceptions.InvalidSchema,
+                    requests.exceptions.MissingSchema,
+                    requests.exceptions.InvalidSchema,
             ) as schemaerr:
                 print(f"Something went wrong with the url schema: {schemaerr}")
-                #broken_links.append((parent_link, working_link))
+                # broken_links.append((parent_link, working_link))
                 print(parent_link, working_link)
             except requests.exceptions.HTTPError as err:
                 print(f"Something went wrong with downloading a page: {err}")
@@ -141,7 +141,7 @@ def link_crawler(url):
     for external_link in external_links:
         # check if the link has already been listed in broken links or visited links:
         logging.debug(f"external link is {str(list(external_link))}")
-        #skipping if link already visited
+        # skipping if link already visited
         if external_link[1] in visited_links:
             continue
 
@@ -149,8 +149,8 @@ def link_crawler(url):
             request_object = requests.get(external_link[1], headers)
             request_object.raise_for_status()
         except (
-            requests.exceptions.MissingSchema,
-            requests.exceptions.InvalidSchema,
+                requests.exceptions.MissingSchema,
+                requests.exceptions.InvalidSchema,
         ) as schemaerr:
             print(f"Something went wrong with downloading: {schemaerr}")
             visited_links.append(external_link)
@@ -161,7 +161,6 @@ def link_crawler(url):
         except requests.exceptions.ConnectionError as urlerr:
             print(f"something went wrong with downloading: {urlerr}")
             visited_links.append(external_link)
-
 
     return broken_links
 
